@@ -346,17 +346,32 @@ class BlueThermalPrinter {
     if (!await file.exists()) return;
 
     final data = await file.readAsBytes();
-    final decoded = img.decodeImage(data);
-    if (decoded == null) return;
+    final logo = img.decodeImage(data);
+    if (logo == null) return;
 
     final generator = await _getGenerator();
 
-    final bytes = generator.imageRaster(
-      decoded,
-      align: PosAlign.center,
-    );
+    // Many 80mm printers have a 512-dot printable area even if the paper is 576-dot wide.
+    // Using a 512-dot canvas is a safer standard that avoids cropping issues in many models.
+    const int canvasWidth = 512;
+    final canvas = img.Image(width: canvasWidth, height: logo.height);
 
-    await _send(bytes);
+    // Ensure the background is white (ESC/POS 0 bit).
+    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+
+    // Center the logo within the 512-dot canvas.
+    final int xOffset = ((canvasWidth - logo.width) / 2).floor();
+    img.compositeImage(canvas, logo, dstX: xOffset, dstY: 0);
+
+    // Print the canvas centered on the paper.
+    await _send(generator.imageRaster(
+      canvas,
+      align: PosAlign.center,
+    ));
+
+    // CRITICAL: Reset the printer's alignment to left.
+    // This fixes the issue where centering the image was also centering subsequent text.
+    await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
   }
 
 
