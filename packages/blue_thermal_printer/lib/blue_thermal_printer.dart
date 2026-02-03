@@ -341,40 +341,23 @@ class BlueThermalPrinter {
     await _send(bytes);
   }
 
-Future<void> printImage(String path) async {
-  final file = File(path);
-  final data = await file.readAsBytes();
-  final decoded = img.decodeImage(data)!;
+  Future<void> printImage(String path) async {
+    final file = File(path);
+    if (!await file.exists()) return;
 
-  const int paperWidth = 576; // 80mm real
-  const int lostLeftPixels = 40; // lo que el driver se come (ajusta 30–50)
+    final data = await file.readAsBytes();
+    final decoded = img.decodeImage(data);
+    if (decoded == null) return;
 
-  // canvas del ancho del papel
-  final canvas = img.Image(
-    width: paperWidth,
-    height: decoded.height,
-  );
+    final generator = await _getGenerator();
 
-  // fondo blanco
-  img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+    final bytes = generator.imageRaster(
+      decoded,
+      align: PosAlign.center,
+    );
 
-  // centrar imagen
-  int offsetX = ((paperWidth - decoded.width) / 2).round();
-
-  // compensar recorte del driver
-  offsetX += lostLeftPixels;
-
-  img.compositeImage(canvas, decoded, dstX: offsetX, dstY: 0);
-
-  final generator = await _getGenerator();
-
-  final bytes = generator.imageRaster(
-    canvas,
-    align: PosAlign.left, // ⚠️ NUNCA center aquí
-  );
-
-  await _send(bytes);
-}
+    await _send(bytes);
+  }
 
 
 
