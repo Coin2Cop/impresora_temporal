@@ -349,25 +349,33 @@ class BlueThermalPrinter {
     final decoded = img.decodeImage(data);
     if (decoded == null) return;
 
-    // 1. Flatten transparency on white background.
+    // 1. Process image: Flatten transparency on white, Grayscale, and HEAVY Contrast.
+    // The "cropping" on the left is because the light blue color in the gradient
+    // is being thresholded to white. Boosting contrast forces it to black dots.
     var processed = img.Image(width: decoded.width, height: decoded.height);
     img.fill(processed, color: img.ColorRgb8(255, 255, 255));
     img.compositeImage(processed, decoded);
-
-    // 2. Grayscale and Dither.
-    // Dithering is the best way to handle the logo's gradient (light blue to purple)
-    // on a B&W thermal printer. It avoids "cropping" light areas and turning
-    // everything into a solid black block.
     processed = img.grayscale(processed);
-    processed = img.ditherImage(processed, kernel: img.DitherKernel.floydSteinberg);
+    processed = img.contrast(processed, contrast: 3.0);
+
+    // 2. Manual Padding (Centering).
+    // Using a 512-dot wide canvas (standard printable area for most 80mm printers).
+    // This avoids buffer issues and gives absolute control over centering.
+    const int canvasWidth = 512;
+    var canvas = img.Image(width: canvasWidth, height: processed.height);
+    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+
+    final int xOffset = ((canvasWidth - processed.width) / 2).floor();
+    img.compositeImage(canvas, processed, dstX: xOffset, dstY: 0);
 
     final generator = await _getGenerator();
 
-    // 3. Center and Print.
-    // We use imageRaster (GS v 0) which is widely supported for 80mm printers.
-    await _send(generator.imageRaster(processed, align: PosAlign.center));
+    // 3. Print.
+    // We print the 512-dot canvas centered using the library alignment.
+    // This handles printers with 512, 576 or 640 dot widths correctly.
+    await _send(generator.imageRaster(canvas, align: PosAlign.center));
 
-    // 4. Reset alignment to left for subsequent text blocks.
+    // 4. Reset alignment to left for subsequent text.
     await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
   }
 
