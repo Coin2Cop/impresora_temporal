@@ -346,31 +346,31 @@ class BlueThermalPrinter {
     if (!await file.exists()) return;
 
     final data = await file.readAsBytes();
-    final logo = img.decodeImage(data);
-    if (logo == null) return;
+    final decoded = img.decodeImage(data);
+    if (decoded == null) return;
+
+    // The logo has a gradient that goes from light blue (left) to purple (right).
+    // Thermal printers are black & white. If the light blue is too light, it gets
+    // thresholded to white, making the image appear "cropped" on the left.
+
+    // 1. Flatten transparency on white background.
+    final logo = img.Image(width: decoded.width, height: decoded.height);
+    img.fill(logo, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(logo, decoded);
+
+    // 2. Convert to grayscale and significantly boost contrast to ensure the
+    // light blue parts are dark enough to be printed as black.
+    img.grayscale(logo);
+    img.contrast(logo, contrast: 2.5);
 
     final generator = await _getGenerator();
 
-    // Many 80mm printers have a 512-dot printable area even if the paper is 576-dot wide.
-    // Using a 512-dot canvas is a safer standard that avoids cropping issues in many models.
-    const int canvasWidth = 512;
-    final canvas = img.Image(width: canvasWidth, height: logo.height);
+    // Use bit-image mode (ESC *) instead of raster mode (GS v 0).
+    // ESC * is an older command that is often more robust across different
+    // printer models when combined with the ESC a (alignment) command.
+    await _send(generator.image(logo, align: PosAlign.center));
 
-    // Ensure the background is white (ESC/POS 0 bit).
-    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
-
-    // Center the logo within the 512-dot canvas.
-    final int xOffset = ((canvasWidth - logo.width) / 2).floor();
-    img.compositeImage(canvas, logo, dstX: xOffset, dstY: 0);
-
-    // Print the canvas centered on the paper.
-    await _send(generator.imageRaster(
-      canvas,
-      align: PosAlign.center,
-    ));
-
-    // CRITICAL: Reset the printer's alignment to left.
-    // This fixes the issue where centering the image was also centering subsequent text.
+    // CRITICAL: Reset the printer's alignment to left for subsequent text.
     await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
   }
 
