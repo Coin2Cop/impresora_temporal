@@ -1,0 +1,8 @@
+# Flutter generated directories
+.dart_tool/
+build/
+ios/Flutter/ephemeral/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+android/.idea/

@@ -1,0 +1,50 @@
+name: xeler_impresora
+description: Aplicación móvil para impresión con Xeler.
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.6
+  http: ^1.2.1
+  shared_preferences: ^2.2.2
+  intl: ">=0.19.0 <0.21.0"
+  path_provider: ^2.1.3
+  flutter_masked_text2: ^0.9.1
+  blue_thermal_printer:
+    path: packages/blue_thermal_printer
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.2
+  flutter_launcher_icons: ^0.13.1
+
+flutter_icons:
+  image_path: assets/images/impresoralogo.png
+  android: true
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/images/512xeler.png
+    - assets/images/impresoralogo.png
+    - assets/images/xeler_tarjetas.png
+    - assets/images/192xeler.png
+
+  fonts:
+    - family: Raleway
+      fonts:
+        - asset: fonts/Raleway-Regular.ttf
+        - asset: fonts/Raleway-Thin.ttf
+          style: normal
