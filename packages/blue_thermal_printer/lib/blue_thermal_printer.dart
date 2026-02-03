@@ -349,30 +349,25 @@ class BlueThermalPrinter {
     final decoded = img.decodeImage(data);
     if (decoded == null) return;
 
-    // 1. Prepare image: Flatten transparency on white, Grayscale, and Boost Contrast.
-    // This ensures light blue colors on the left aren't thresholded to white (appearing cropped).
+    // 1. Flatten transparency on white background.
     var processed = img.Image(width: decoded.width, height: decoded.height);
     img.fill(processed, color: img.ColorRgb8(255, 255, 255));
     img.compositeImage(processed, decoded);
+
+    // 2. Grayscale and Dither.
+    // Dithering is the best way to handle the logo's gradient (light blue to purple)
+    // on a B&W thermal printer. It avoids "cropping" light areas and turning
+    // everything into a solid black block.
     processed = img.grayscale(processed);
-    processed = img.contrast(processed, contrast: 2.0);
-
-    // 2. Create a 512-dot safe canvas.
-    // Most 80mm printers have a 512-dot printable area (64mm).
-    const int canvasWidth = 512;
-    var canvas = img.Image(width: canvasWidth, height: processed.height);
-    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
-
-    final int xOffset = ((canvasWidth - processed.width) / 2).floor();
-    img.compositeImage(canvas, processed, dstX: xOffset, dstY: 0);
+    processed = img.ditherImage(processed, kernel: img.DitherKernel.floydSteinberg);
 
     final generator = await _getGenerator();
 
-    // 3. Print using GS v 0 (Raster mode) with native centering.
-    // We use imageRaster as it was working in earlier versions, unlike bit-image mode.
-    await _send(generator.imageRaster(canvas, align: PosAlign.center));
+    // 3. Center and Print.
+    // We use imageRaster (GS v 0) which is widely supported for 80mm printers.
+    await _send(generator.imageRaster(processed, align: PosAlign.center));
 
-    // 4. Reset alignment to left for subsequent text.
+    // 4. Reset alignment to left for subsequent text blocks.
     await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
   }
 
