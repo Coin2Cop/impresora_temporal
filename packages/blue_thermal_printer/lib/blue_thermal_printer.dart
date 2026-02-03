@@ -349,28 +349,30 @@ class BlueThermalPrinter {
     final decoded = img.decodeImage(data);
     if (decoded == null) return;
 
-    // The logo has a gradient that goes from light blue (left) to purple (right).
-    // Thermal printers are black & white. If the light blue is too light, it gets
-    // thresholded to white, making the image appear "cropped" on the left.
+    // 1. Prepare image: Flatten transparency on white, Grayscale, and Boost Contrast.
+    // This ensures light blue colors on the left aren't thresholded to white (appearing cropped).
+    var processed = img.Image(width: decoded.width, height: decoded.height);
+    img.fill(processed, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(processed, decoded);
+    processed = img.grayscale(processed);
+    processed = img.contrast(processed, contrast: 2.0);
 
-    // 1. Flatten transparency on white background.
-    final logo = img.Image(width: decoded.width, height: decoded.height);
-    img.fill(logo, color: img.ColorRgb8(255, 255, 255));
-    img.compositeImage(logo, decoded);
+    // 2. Create a 512-dot safe canvas.
+    // Most 80mm printers have a 512-dot printable area (64mm).
+    const int canvasWidth = 512;
+    var canvas = img.Image(width: canvasWidth, height: processed.height);
+    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
 
-    // 2. Convert to grayscale and significantly boost contrast to ensure the
-    // light blue parts are dark enough to be printed as black.
-    img.grayscale(logo);
-    img.contrast(logo, contrast: 2.5);
+    final int xOffset = ((canvasWidth - processed.width) / 2).floor();
+    img.compositeImage(canvas, processed, dstX: xOffset, dstY: 0);
 
     final generator = await _getGenerator();
 
-    // Use bit-image mode (ESC *) instead of raster mode (GS v 0).
-    // ESC * is an older command that is often more robust across different
-    // printer models when combined with the ESC a (alignment) command.
-    await _send(generator.image(logo, align: PosAlign.center));
+    // 3. Print using GS v 0 (Raster mode) with native centering.
+    // We use imageRaster as it was working in earlier versions, unlike bit-image mode.
+    await _send(generator.imageRaster(canvas, align: PosAlign.center));
 
-    // CRITICAL: Reset the printer's alignment to left for subsequent text.
+    // 4. Reset alignment to left for subsequent text.
     await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
   }
 
