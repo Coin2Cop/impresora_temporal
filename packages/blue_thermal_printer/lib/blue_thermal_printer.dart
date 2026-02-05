@@ -349,31 +349,50 @@ class BlueThermalPrinter {
     final decoded = img.decodeImage(data);
     if (decoded == null) return;
 
-    // 1. Prepare image: Flatten transparency on white.
-    var processed = img.Image(width: decoded.width, height: decoded.height);
-    img.fill(processed, color: img.ColorRgb8(255, 255, 255));
-    img.compositeImage(processed, decoded);
+    // 1. Flatten transparency on white and convert to grayscale.
+    var canvas = img.Image(width: decoded.width, height: decoded.height);
+    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(canvas, decoded);
+    canvas = img.grayscale(canvas);
 
-    // 2. Grayscale and Moderate Contrast.
-    // Contrast 1.5 ensures the gradient is dark enough to be visible but avoids
-    // turning the whole logo into a solid black block.
-    processed = img.grayscale(processed);
-    processed = img.contrast(processed, contrast: 1.5);
+    // 2. Manual thresholding for high clarity.
+    // We map light pixels (gradient) to black if they are below a high threshold (220).
+    // This ensures light blue parts are printed as solid black, avoiding "holes".
+    for (var y = 0; y < canvas.height; y++) {
+      for (var x = 0; x < canvas.width; x++) {
+        final pixel = canvas.getPixel(x, y);
+        if (pixel.r < 220) {
+          canvas.setPixel(x, y, img.ColorRgb8(0, 0, 0));
+        } else {
+          canvas.setPixel(x, y, img.ColorRgb8(255, 255, 255));
+        }
+      }
+    }
 
-    // 3. Add Safe Margin (40px white padding on each side).
-    // This protects the logo from physical/driver-level cropping on the left.
-    const int margin = 40;
-    final safeImage = img.Image(
-      width: processed.width + (margin * 2),
-      height: processed.height,
-    );
-    img.fill(safeImage, color: img.ColorRgb8(255, 255, 255));
-    img.compositeImage(safeImage, processed, dstX: margin, dstY: 0);
+    // 3. Create a full-width canvas based on current paper size (e.g. 576 for 80mm).
+    // We manually position the image to compensate for the hardware's left-side dead zone.
+    final int fullWidth = _paperSize.width;
+    final int imgWidth = canvas.width;
+
+    // Calculate centered position then shift right by 60px as requested by user.
+    int xOffset = ((fullWidth - imgWidth) ~/ 2) + 60;
+
+    // Bounds safety: Ensure the image doesn't bleed past the right edge.
+    if (xOffset + imgWidth > fullWidth) {
+      xOffset = fullWidth - imgWidth;
+    }
+    if (xOffset < 0) {
+      xOffset = 0;
+    }
+
+    final fullCanvas = img.Image(width: fullWidth, height: canvas.height);
+    img.fill(fullCanvas, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(fullCanvas, canvas, dstX: xOffset, dstY: 0);
 
     final generator = await _getGenerator();
 
-    // 4. Print with native centering.
-    await _send(generator.imageRaster(safeImage, align: PosAlign.center));
+    // 4. Print full-line raster. Use PosAlign.left because we handled centering manually.
+    await _send(generator.imageRaster(fullCanvas, align: PosAlign.left));
 
     // 5. Reset alignment to left for subsequent text.
     await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
