@@ -349,33 +349,33 @@ class BlueThermalPrinter {
     final decoded = img.decodeImage(data);
     if (decoded == null) return;
 
-    // 1. Process image: Flatten transparency on white, Grayscale, and HEAVY Contrast.
-    // The "cropping" on the left is because the light blue color in the gradient
-    // is being thresholded to white. Boosting contrast forces it to black dots.
+    // 1. Prepare image: Flatten transparency on white.
     var processed = img.Image(width: decoded.width, height: decoded.height);
     img.fill(processed, color: img.ColorRgb8(255, 255, 255));
     img.compositeImage(processed, decoded);
+
+    // 2. Grayscale and Moderate Contrast.
+    // Contrast 1.5 ensures the gradient is dark enough to be visible but avoids
+    // turning the whole logo into a solid black block.
     processed = img.grayscale(processed);
-    processed = img.contrast(processed, contrast: 3.0);
+    processed = img.contrast(processed, contrast: 1.5);
 
-    // 2. Manual Padding (Centering).
-    // Using a 512-dot wide canvas (standard printable area for most 80mm printers).
-    // This avoids buffer issues and gives absolute control over centering.
-    const int canvasWidth = 512;
-    var canvas = img.Image(width: canvasWidth, height: processed.height);
-    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
-
-    final int xOffset = ((canvasWidth - processed.width) / 2).floor();
-    img.compositeImage(canvas, processed, dstX: xOffset, dstY: 0);
+    // 3. Add Safe Margin (40px white padding on each side).
+    // This protects the logo from physical/driver-level cropping on the left.
+    const int margin = 40;
+    final safeImage = img.Image(
+      width: processed.width + (margin * 2),
+      height: processed.height,
+    );
+    img.fill(safeImage, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(safeImage, processed, dstX: margin, dstY: 0);
 
     final generator = await _getGenerator();
 
-    // 3. Print.
-    // We print the 512-dot canvas centered using the library alignment.
-    // This handles printers with 512, 576 or 640 dot widths correctly.
-    await _send(generator.imageRaster(canvas, align: PosAlign.center));
+    // 4. Print with native centering.
+    await _send(generator.imageRaster(safeImage, align: PosAlign.center));
 
-    // 4. Reset alignment to left for subsequent text.
+    // 5. Reset alignment to left for subsequent text.
     await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
   }
 
