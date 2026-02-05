@@ -374,8 +374,8 @@ class BlueThermalPrinter {
     final int fullWidth = _paperSize.width;
     final int imgWidth = canvas.width;
 
-    // Calculate centered position then shift right by 60px as requested by user.
-    int xOffset = ((fullWidth - imgWidth) ~/ 2) + 60;
+    // Calculate centered position.
+    int xOffset = (fullWidth - imgWidth) ~/ 2;
 
     // Bounds safety: Ensure the image doesn't bleed past the right edge.
     if (xOffset + imgWidth > fullWidth) {
