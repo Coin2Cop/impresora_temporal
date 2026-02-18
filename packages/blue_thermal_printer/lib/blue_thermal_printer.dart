@@ -341,40 +341,62 @@ class BlueThermalPrinter {
     await _send(bytes);
   }
 
-Future<void> printImage(String path) async {
-  final file = File(path);
-  final data = await file.readAsBytes();
-  final decoded = img.decodeImage(data)!;
+  Future<void> printImage(String path) async {
+    final file = File(path);
+    if (!await file.exists()) return;
 
-  const int paperWidth = 576; // 80mm real
-  const int lostLeftPixels = 40; // lo que el driver se come (ajusta 30–50)
+    final data = await file.readAsBytes();
+    final decoded = img.decodeImage(data);
+    if (decoded == null) return;
 
-  // canvas del ancho del papel
-  final canvas = img.Image(
-    width: paperWidth,
-    height: decoded.height,
-  );
+    // 1. Flatten transparency on white and convert to grayscale.
+    var canvas = img.Image(width: decoded.width, height: decoded.height);
+    img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(canvas, decoded);
+    canvas = img.grayscale(canvas);
 
-  // fondo blanco
-  img.fill(canvas, color: img.ColorRgb8(255, 255, 255));
+    // 2. Manual thresholding for high clarity.
+    // We map light pixels (gradient) to black if they are below a high threshold (220).
+    // This ensures light blue parts are printed as solid black, avoiding "holes".
+    for (var y = 0; y < canvas.height; y++) {
+      for (var x = 0; x < canvas.width; x++) {
+        final pixel = canvas.getPixel(x, y);
+        if (pixel.r < 220) {
+          canvas.setPixel(x, y, img.ColorRgb8(0, 0, 0));
+        } else {
+          canvas.setPixel(x, y, img.ColorRgb8(255, 255, 255));
+        }
+      }
+    }
 
-  // centrar imagen
-  int offsetX = ((paperWidth - decoded.width) / 2).round();
+    // 3. Create a full-width canvas based on current paper size (e.g. 576 for 80mm).
+    // We manually position the image to compensate for the hardware's left-side dead zone.
+    final int fullWidth = _paperSize.width;
+    final int imgWidth = canvas.width;
 
-  // compensar recorte del driver
-  offsetX += lostLeftPixels;
+    // Calculate centered position.
+    int xOffset = (fullWidth - imgWidth) ~/ 2;
 
-  img.compositeImage(canvas, decoded, dstX: offsetX, dstY: 0);
+    // Bounds safety: Ensure the image doesn't bleed past the right edge.
+    if (xOffset + imgWidth > fullWidth) {
+      xOffset = fullWidth - imgWidth;
+    }
+    if (xOffset < 0) {
+      xOffset = 0;
+    }
 
-  final generator = await _getGenerator();
+    final fullCanvas = img.Image(width: fullWidth, height: canvas.height);
+    img.fill(fullCanvas, color: img.ColorRgb8(255, 255, 255));
+    img.compositeImage(fullCanvas, canvas, dstX: xOffset, dstY: 0);
 
-  final bytes = generator.imageRaster(
-    canvas,
-    align: PosAlign.left, // ⚠️ NUNCA center aquí
-  );
+    final generator = await _getGenerator();
 
-  await _send(bytes);
-}
+    // 4. Print full-line raster. Use PosAlign.left because we handled centering manually.
+    await _send(generator.imageRaster(fullCanvas, align: PosAlign.left));
+
+    // 5. Reset alignment to left for subsequent text.
+    await _send(generator.setStyles(const PosStyles(align: PosAlign.left)));
+  }
 
 
 
